@@ -10,8 +10,7 @@ require('dotenv').config();
 const app = express();
 app.use(express.json())
 app.use(cors({
-  origin: 'https://slack-message-finder.vercel.app',
-  methods: '*'
+  origin: '*',
 }));
 app.use(morgan('dev'))
 
