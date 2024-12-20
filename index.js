@@ -106,34 +106,72 @@ app.get('/api/fetch-channels', async (req, res) => {
   }
 });
 
-app.get('/api/search-message', async (req, res) => {
-  const { channelId, query } = req.query;
-  const token = req.headers['authorization'].split(' ')[1];
-  if (!token) throw new Error('Invalid authorization')
-  const decoded = jwt.verify(token, process.env.JWT_SIGNING_SECRET);
+app.post('/api/search-message', async (req, res) => {
+  const { channelId, query } = req.body;
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Invalid authorization' });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SIGNING_SECRET);
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
   const accessToken = decoded.accessToken;
 
   try {
-    if (!channelId || !accessToken || !query) throw new Error('All fields must be provided')
+    if (!channelId || !accessToken || !query) {
+      throw new Error('All fields must be provided');
+    }
 
-    const data = await axios.post('https://slack.com/api/search.messages', new URLSearchParams({
-      query: `${query} in:${channelId}`,
-      highlights: 'true'
-    }), {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
+    const allMessages = [];
+
+    for (const q of query) {
+      const data = await axios.post(
+        'https://slack.com/api/search.messages',
+        new URLSearchParams({
+          query: `${q} in:${channelId}`,
+          highlights: 'true'
+        }),
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+        }
+      );
+
+      // Add the messages from each query to the allMessages array
+      if (data.data.messages) {
+        allMessages.push(...data.data.messages.matches);
+      }
+    }
+
+    const uniqueMessages = Array.from(
+      new Map(allMessages.map(msg => [msg.ts, msg])).values()
+    );
+
+    const filteredMessages = uniqueMessages.map((x) => {
+      return {
+        text: x.text,
+        ts: x.ts,
+      };
     })
+
+    const sortedMessages = filteredMessages.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
 
     res.status(200).json({
-      messages: data.data
-    })
+      messages: sortedMessages
+    });
   } catch (err) {
     console.error('Error searching messages:', err);
     res.status(500).json({ error: 'Failed to search messages' });
   }
-})
+});
+
 
 
 app.listen(8080, () => {
